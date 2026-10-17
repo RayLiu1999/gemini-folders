@@ -14,6 +14,26 @@ function button(label: string, action: () => void, className = ''): HTMLButtonEl
 function labelFor(text: string, control: HTMLElement): HTMLLabelElement {
   const label = element('label', text, 'gf-field'); label.append(control); return label;
 }
+export function dismissOnBackdrop(modal: HTMLDialogElement, dismiss = () => modal.close()): () => void {
+  let startedOutside = false;
+  const outside = (event: MouseEvent) => {
+    if (!modal.open || event.target !== modal) return false;
+    const bounds = modal.getBoundingClientRect();
+    return event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
+  };
+  const reset = () => { startedOutside = false; };
+  const down = (event: PointerEvent) => { startedOutside = event.button === 0 && outside(event); };
+  const click = (event: MouseEvent) => {
+    const shouldDismiss = startedOutside && event.button === 0 && outside(event); reset();
+    if (shouldDismiss) { event.preventDefault(); event.stopPropagation(); dismiss(); }
+  };
+  modal.addEventListener('pointerdown', down); modal.addEventListener('click', click);
+  modal.addEventListener('pointercancel', reset); modal.addEventListener('close', reset);
+  return () => {
+    modal.removeEventListener('pointerdown', down); modal.removeEventListener('click', click);
+    modal.removeEventListener('pointercancel', reset); modal.removeEventListener('close', reset);
+  };
+}
 export function folderPath(workspace: Workspace, folder: Folder): string {
   const names = [folder.name]; let parentId = folder.parentId;
   while (parentId) { const parent = workspace.folders.find(item => item.id === parentId); if (!parent) break; names.unshift(parent.name); parentId = parent.parentId; }
@@ -71,7 +91,8 @@ export function mountManager(root: HTMLElement, client: Client, options: Manager
     modal.setAttribute('aria-labelledby', heading.id);
     const body = element('div', undefined, 'gf-dialog-body'); const footer = element('div', undefined, 'gf-actions');
     const previous = (root.getRootNode() as Document | ShadowRoot).activeElement;
-    const close = () => { modal.close(); modal.remove(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+    const close = () => { stopBackdropDismiss(); modal.close(); modal.remove(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+    const stopBackdropDismiss = dismissOnBackdrop(modal, close);
     const submit = element('button', '儲存', 'gf-primary'); submit.type = 'submit';
     footer.append(button('取消', close), submit); form.append(heading, body, footer); modal.append(form); root.append(modal);
     const onSubmit = build(body, submit, close);

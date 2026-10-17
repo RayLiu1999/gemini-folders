@@ -3,7 +3,7 @@ import { createClient } from '../src/client';
 import { AccountSession, accountIdentity, accountWorkspace, collectChats, findSidebar, sidebarAnchor } from '../src/gemini';
 import { parseChatUrl, type Workspace } from '../src/model';
 import { mountSidebarSection } from '../src/sidebar';
-import { mountManager } from '../src/ui';
+import { dismissOnBackdrop, mountManager } from '../src/ui';
 import css from '../src/style.css?inline';
 
 export default defineContentScript({
@@ -20,6 +20,7 @@ export default defineContentScript({
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style'); style.textContent = css;
     const panel = document.createElement('dialog'); panel.className = 'gf-panel'; panel.setAttribute('aria-label', 'Gemini 資料夾管理');
+    const stopBackdropDismiss = dismissOnBackdrop(panel);
     const app = document.createElement('div'); panel.append(app);
     const fallback = document.createElement('button'); fallback.className = 'gf-fallback'; fallback.textContent = '▱ 我的資料夾'; fallback.type = 'button';
     shadow.append(style, panel, fallback); document.body.append(host);
@@ -127,6 +128,6 @@ export default defineContentScript({
     // Poll only account controls, URL, and the sidebar; never inspect message bodies.
     ctx.setInterval(() => { void synchronize(); }, 1200);
     void synchronize();
-    ctx.onInvalidated(() => { unsubscribe(); manager.destroy(); sidebarSection?.destroy(); sideHost?.remove(); host.remove(); });
+    ctx.onInvalidated(() => { unsubscribe(); stopBackdropDismiss(); manager.destroy(); sidebarSection?.destroy(); sideHost?.remove(); host.remove(); });
   },
 });
