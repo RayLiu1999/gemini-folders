@@ -39,6 +39,7 @@ export function mountManager(root: HTMLElement, client: Client, options: Manager
   let folderFilter = 'all'; let query = ''; let selected = new Set<string>();
   let busy = false; let disposed = false; let message = ''; let failure = false;
   let selectionGeneration = 0;
+  let composingSearch: HTMLInputElement | null = null;
   let blocked = '正在讀取工作區…';
   const shell = element('section', undefined, 'gf-shell'); root.append(shell);
 
@@ -153,32 +154,52 @@ export function mountManager(root: HTMLElement, client: Client, options: Manager
     if (disposed) return;
     const focus = shell.querySelector<HTMLInputElement>('input:focus');
     const focusKey = focus?.dataset.focus; const selectionStart = focus?.selectionStart;
-    shell.replaceChildren();
+    // Keep the search field connected: detaching it cancels native IME composition.
+    const existingToolbar = workspace ? shell.querySelector<HTMLDivElement>(':scope > .gf-toolbar') : null;
+    for (const child of [...shell.childNodes]) if (child !== existingToolbar) child.remove();
     const header = element('header', undefined, 'gf-header');
     const brand = element('div'); brand.append(element('span', 'G / F', 'gf-logo'), element('h1', '我的資料夾'), element('p', workspace?.name ?? 'Gemini Folders', 'gf-muted'));
     const actions = element('div', undefined, 'gf-actions');
     if (options.onClose) actions.append(button('關閉', options.onClose));
-    header.append(brand, actions); shell.append(header);
+    header.append(brand, actions); shell.insertBefore(header, existingToolbar);
     if (options.standalone) {
       const workspaceBar = element('div', undefined, 'gf-workspaces');
       const picker = element('select'); picker.setAttribute('aria-label', '工作區');
       const empty = element('option', '選擇工作區'); empty.value = ''; picker.append(empty);
       for (const item of workspaces) { const option = element('option', `${item.name} · ${item.id.slice(-6)}（${item.chatCount} 個聊天）`); option.value = item.id; picker.append(option); }
       picker.value = workspace?.id ?? ''; picker.disabled = busy; picker.addEventListener('change', () => { if (picker.value) void selectWorkspace(picker.value); else setWorkspace(null, '請選擇工作區。'); });
-      workspaceBar.append(picker, button('新增手動工作區', newWorkspace)); shell.append(workspaceBar);
+      workspaceBar.append(picker, button('新增手動工作區', newWorkspace)); shell.insertBefore(workspaceBar, existingToolbar);
     }
-    const live = element('p', message, failure ? 'gf-status gf-error' : 'gf-status'); live.setAttribute('role', failure ? 'alert' : 'status'); live.setAttribute('aria-live', 'polite'); shell.append(live);
-    if (!workspace) { shell.append(element('div', blocked, 'gf-empty')); return; }
+    const live = element('p', message, failure ? 'gf-status gf-error' : 'gf-status'); live.setAttribute('role', failure ? 'alert' : 'status'); live.setAttribute('aria-live', 'polite'); shell.insertBefore(live, existingToolbar);
+    if (!workspace) { composingSearch = null; shell.append(element('div', blocked, 'gf-empty')); return; }
     const currentWorkspace = workspace;
-    const toolbar = element('div', undefined, 'gf-toolbar');
-    const search = element('input'); search.type = 'search'; search.placeholder = '搜尋聊天標題或資料夾'; search.setAttribute('aria-label', '搜尋聊天與資料夾'); search.dataset.focus = 'search'; search.value = query;
-    search.addEventListener('input', () => { query = search.value; selected.clear(); render(); });
+    const toolbar = existingToolbar ?? element('div', undefined, 'gf-toolbar');
+    let search = toolbar.querySelector<HTMLInputElement>('input[type="search"]');
+    if (!search) {
+      const field = element('input'); field.type = 'search'; field.placeholder = '搜尋聊天標題或資料夾'; field.setAttribute('aria-label', '搜尋聊天與資料夾'); field.dataset.focus = 'search';
+      const isCurrent = () => field.isConnected && workspace?.id === currentWorkspace.id;
+      const applySearch = () => { query = field.value; selected.clear(); render(); };
+      field.addEventListener('compositionstart', () => { if (isCurrent()) composingSearch = field; });
+      field.addEventListener('input', event => {
+        if (!isCurrent()) return;
+        if (event instanceof InputEvent && event.isComposing) composingSearch = field;
+        if (composingSearch !== field) applySearch();
+      });
+      field.addEventListener('compositionend', () => {
+        if (!isCurrent()) return;
+        composingSearch = null; applySearch();
+      });
+      toolbar.append(field); search = field;
+    }
+    // A background refresh may arrive while the field contains uncommitted phonetics.
+    if (composingSearch !== search && search.value !== query) search.value = query;
+    for (const child of [...toolbar.childNodes]) if (child !== search) child.remove();
     const create = button('＋ 新增資料夾', () => folderDialog(), 'gf-primary'); create.disabled = busy;
     const backup = button('匯出備份', () => downloadBackup(currentWorkspace));
     const file = element('input'); file.type = 'file'; file.accept = 'application/json,.json'; file.hidden = true;
     file.addEventListener('change', () => { if (file.files?.[0]) void loadFile(file.files[0]); });
     const upload = button('匯入備份', () => file.click()); upload.disabled = busy;
-    toolbar.append(search, create, backup, upload, file); shell.append(toolbar);
+    toolbar.append(create, backup, upload, file); if (!existingToolbar) shell.append(toolbar);
     if (options.currentChat) {
       const current = options.currentChat();
       const add = button('將目前聊天加入資料夾', () => {
@@ -242,10 +263,10 @@ export function mountManager(root: HTMLElement, client: Client, options: Manager
     if (!visible.length) main.append(element('div', needle ? '沒有符合的聊天。可切換「全部已收錄」搜尋其他分類。' : '這裡還沒有聊天。開啟 Gemini 的既有對話即可收錄。', 'gf-empty'));
     main.append(list); layout.append(nav, main); shell.append(layout);
     shell.append(element('p', '僅搜尋已收錄聊天的標題；未載入的歷史紀錄不會自動出現在這裡。資料保存在本機，移除插件前請先匯出備份。', 'gf-footnote'));
-    if (focusKey) { const target = [...shell.querySelectorAll<HTMLInputElement>('input[data-focus]')].find(node => node.dataset.focus === focusKey); target?.focus(); if (target?.type === 'search' && selectionStart !== null && selectionStart !== undefined) target.setSelectionRange(selectionStart, selectionStart); }
+    if (focusKey) { const target = [...shell.querySelectorAll<HTMLInputElement>('input[data-focus]')].find(node => node.dataset.focus === focusKey); if (target !== focus) { target?.focus(); if (target?.type === 'search' && selectionStart !== null && selectionStart !== undefined) target.setSelectionRange(selectionStart, selectionStart); } }
   }
   function setWorkspace(next: Workspace | null, reason = '無法辨識目前帳號，請重新整理或從管理頁選擇工作區。') {
-    if (next?.id !== workspace?.id) { selectionGeneration++; selected.clear(); folderFilter = 'all'; query = ''; message = ''; closeDialogs(); }
+    if (next?.id !== workspace?.id) { selectionGeneration++; selected.clear(); folderFilter = 'all'; query = ''; message = ''; composingSearch = null; shell.querySelector(':scope > .gf-toolbar')?.remove(); closeDialogs(); }
     if (next && workspace?.id === next.id && next.revision < workspace.revision) return;
     workspace = next; blocked = reason; render();
   }

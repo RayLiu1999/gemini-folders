@@ -52,7 +52,54 @@ describe('使用者整理流程', () => {
     const manager = mountManager(root, client); manager.setWorkspace(ws);
     expect(getByRole(root, 'link', { name: '<img src=x onerror=alert(1)>' })).toBeTruthy(); expect(root.querySelector('img')).toBeNull();
     const search = getByRole(root, 'searchbox'); search.focus(); fireEvent.input(search, { target: { value: '讀書' } });
-    expect(document.activeElement).toBe(getByRole(root, 'searchbox')); expect(root.querySelectorAll('.gf-chat')).toHaveLength(1);
+    expect(getByRole(root, 'searchbox')).toBe(search); expect(document.activeElement).toBe(search); expect(root.querySelectorAll('.gf-chat')).toHaveLength(1);
+    manager.destroy();
+  });
+  it.each(['組字結束前', '組字結束後'])('注音選字的最終 input 在%s送出時，都能完成中文搜尋', order => {
+    const { client } = memoryClient(); const root = document.createElement('div'); document.body.append(root);
+    const manager = mountManager(root, client); manager.setWorkspace(sampleWorkspace());
+    const search = getByRole(root, 'searchbox') as HTMLInputElement; search.focus();
+    fireEvent.compositionStart(search);
+    for (const value of ['ㄉ', 'ㄉㄨ', 'ㄉㄨˊ']) {
+      fireEvent.input(search, { target: { value }, data: value, inputType: 'insertCompositionText', isComposing: true });
+      expect(getByRole(root, 'searchbox')).toBe(search); expect(document.activeElement).toBe(search);
+      expect(root.querySelectorAll('.gf-chat')).toHaveLength(2);
+    }
+    search.value = '讀書';
+    const commit = () => fireEvent.input(search, { data: '讀書', inputType: 'insertText', isComposing: false });
+    if (order === '組字結束前') commit();
+    fireEvent.compositionEnd(search, { data: '讀書' });
+    if (order === '組字結束後') commit();
+    expect(getByRole(root, 'searchbox')).toBe(search); expect(search.value).toBe('讀書');
+    expect(root.querySelectorAll('.gf-chat')).toHaveLength(1); expect(getByRole(root, 'link', { name: '讀書計畫' })).toBeTruthy();
+    manager.destroy();
+  });
+  it('Shadow DOM 內的背景更新保留尚未完成的注音與焦點', () => {
+    const { client } = memoryClient(); const host = document.createElement('div'); document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' }); const root = document.createElement('div'); shadow.append(root);
+    const ws = sampleWorkspace(); const manager = mountManager(root, client); manager.setWorkspace(ws);
+    const search = getByRole(root, 'searchbox') as HTMLInputElement; search.focus();
+    fireEvent.compositionStart(search);
+    fireEvent.input(search, { target: { value: 'ㄉㄨ' }, inputType: 'insertCompositionText', isComposing: true });
+    manager.setWorkspace({ ...ws, revision: ws.revision + 1 });
+    expect(getByRole(root, 'searchbox')).toBe(search); expect(search.isConnected).toBe(true);
+    expect(shadow.activeElement).toBe(search); expect(search.value).toBe('ㄉㄨ');
+    search.value = '讀書'; fireEvent.compositionEnd(search, { data: '讀書' });
+    expect(shadow.activeElement).toBe(search); expect(root.querySelectorAll('.gf-chat')).toHaveLength(1);
+    manager.destroy();
+  });
+  it('切換帳號時清除尚未完成的搜尋組字與舊聊天', () => {
+    const { client } = memoryClient(); const root = document.createElement('div'); document.body.append(root);
+    const manager = mountManager(root, client); manager.setWorkspace(sampleWorkspace());
+    const search = getByRole(root, 'searchbox') as HTMLInputElement; search.focus();
+    fireEvent.compositionStart(search); fireEvent.input(search, { target: { value: 'ㄉ' }, isComposing: true });
+    manager.setWorkspace(null, '正在確認帳號');
+    expect(search.isConnected).toBe(false); expect(root.querySelectorAll('.gf-chat')).toHaveLength(0);
+    manager.setWorkspace(sampleWorkspace('another-account'));
+    const nextSearch = getByRole(root, 'searchbox') as HTMLInputElement;
+    expect(nextSearch).not.toBe(search); expect(nextSearch.value).toBe('');
+    fireEvent.compositionEnd(search, { data: '讀書' });
+    expect(nextSearch.value).toBe(''); expect(root.querySelectorAll('.gf-chat')).toHaveLength(2);
     manager.destroy();
   });
   it('帳號驗證失敗時不執行分類，顯示可理解的錯誤', async () => {
