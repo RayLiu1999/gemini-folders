@@ -13,6 +13,7 @@ export interface Chat {
 }
 export interface Workspace {
   id: string; name: string; revision: number; folders: Folder[]; chats: Chat[]; collapsedFolderIds: string[];
+  sidebarCollapsed: boolean;
 }
 export interface Store { version: 1; workspaces: Workspace[] }
 export interface ObservedChat { id: string; url: string; title: string }
@@ -24,6 +25,7 @@ export type Operation =
   | { type: 'edit-folder'; id: string; name: string; parentId: string | null; color: Color }
   | { type: 'delete-folder'; id: string }
   | { type: 'set-collapsed'; ids: string[] }
+  | { type: 'set-sidebar-collapsed'; collapsed: boolean }
   | { type: 'move-chats'; ids: string[]; folderId: string | null }
   | { type: 'ingest'; chats: ObservedChat[] }
   | { type: 'import'; backup: Backup; conflict: 'keep' | 'incoming' };
@@ -46,6 +48,7 @@ function date(value: unknown): string { const result = text(value, 40); assert(N
 function name(value: unknown): string { const result = text(value, 80).trim(); assert(result.length, '請輸入名稱。'); return result; }
 function color(value: unknown): Color { assert(COLORS.includes(value as Color), '資料夾顏色不正確。'); return value as Color; }
 function array(value: unknown, max: number): unknown[] { assert(Array.isArray(value) && value.length <= max, '資料筆數超過限制。'); return value; }
+function flag(value: unknown): boolean { assert(typeof value === 'boolean', '側欄收合設定不正確。'); return value; }
 
 export function parseChatUrl(value: unknown): { id: string; url: string } | null {
   if (typeof value !== 'string') return null;
@@ -96,6 +99,7 @@ export function validateWorkspace(value: unknown): Workspace {
   const data = record(value);
   const workspace: Workspace = {
     id: id(data.id), name: name(data.name), revision: Number(data.revision), collapsedFolderIds: array(data.collapsedFolderIds ?? [], 1000).map(id),
+    sidebarCollapsed: data.sidebarCollapsed === undefined ? false : flag(data.sidebarCollapsed),
     folders: array(data.folders, 1000).map(value => {
       const folder = record(value);
       return { id: id(folder.id), parentId: nullableId(folder.parentId), name: name(folder.name), color: color(folder.color), createdAt: date(folder.createdAt), updatedAt: date(folder.updatedAt) };
@@ -142,6 +146,7 @@ export function parseOperation(value: unknown): Operation {
     case 'edit-folder': return { type: data.type, id: id(data.id), name: name(data.name), parentId: nullableId(data.parentId), color: color(data.color) };
     case 'delete-folder': return { type: data.type, id: id(data.id) };
     case 'set-collapsed': return { type: data.type, ids: array(data.ids, 1000).map(id) };
+    case 'set-sidebar-collapsed': return { type: data.type, collapsed: flag(data.collapsed) };
     case 'move-chats': return { type: data.type, ids: array(data.ids, 20000).map(id), folderId: nullableId(data.folderId) };
     case 'ingest': return { type: data.type, chats: array(data.chats, 20000).map(observed) };
     case 'import': assert(data.conflict === 'keep' || data.conflict === 'incoming', '請選擇衝突處理方式。'); return { type: data.type, backup: parseBackup(data.backup), conflict: data.conflict };
@@ -150,7 +155,7 @@ export function parseOperation(value: unknown): Operation {
 }
 
 export function emptyWorkspace(workspaceId: string, workspaceName: string): Workspace {
-  return { id: id(workspaceId), name: name(workspaceName), revision: 0, folders: [], chats: [], collapsedFolderIds: [] };
+  return { id: id(workspaceId), name: name(workspaceName), revision: 0, folders: [], chats: [], collapsedFolderIds: [], sidebarCollapsed: false };
 }
 
 export function backupOf(workspace: Workspace): Backup {
@@ -176,6 +181,7 @@ export function applyOperation(workspace: Workspace, input: Operation, env: { no
       break;
     }
     case 'set-collapsed': next.collapsedFolderIds = [...new Set(op.ids)]; break;
+    case 'set-sidebar-collapsed': next.sidebarCollapsed = op.collapsed; break;
     case 'move-chats': {
       assert(op.folderId === null || next.folders.some(item => item.id === op.folderId), '找不到目的資料夾。');
       const selected = new Set(op.ids);

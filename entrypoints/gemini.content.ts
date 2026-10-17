@@ -2,7 +2,8 @@ import { browser } from 'wxt/browser';
 import { createClient } from '../src/client';
 import { AccountSession, accountIdentity, accountWorkspace, collectChats, findSidebar, sidebarAnchor } from '../src/gemini';
 import { parseChatUrl, type Workspace } from '../src/model';
-import { folderPath, mountManager } from '../src/ui';
+import { mountSidebarSection } from '../src/sidebar';
+import { mountManager } from '../src/ui';
 import css from '../src/style.css?inline';
 
 export default defineContentScript({
@@ -14,7 +15,7 @@ export default defineContentScript({
     let activeId: string | null = null; let activeEmail: string | null = null;
     let snapshot: Workspace | null = null; let signature = ''; let syncing = false; let repeat = false;
     let sidebar: HTMLElement | null = null; let sideHost: HTMLElement | null = null;
-    let sidebarUi: HTMLDivElement | null = null;
+    let sidebarSection: ReturnType<typeof mountSidebarSection> | null = null;
     const host = document.createElement('div'); host.dataset.geminiFolders = 'panel';
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style'); style.textContent = css;
@@ -60,26 +61,27 @@ export default defineContentScript({
     fallback.addEventListener('click', () => openPanel());
 
     function renderSidebar() {
-      if (!sidebarUi) return;
-      sidebarUi.replaceChildren();
-      const title = document.createElement('button'); title.type = 'button'; title.className = 'gf-sidebar-title'; title.textContent = '▱ 我的資料夾'; title.addEventListener('click', () => openPanel()); sidebarUi.append(title);
-      const list = document.createElement('div'); list.className = 'gf-sidebar-list'; sidebarUi.append(list);
-      if (snapshot) {
-        for (const folder of [...snapshot.folders].sort((a, b) => folderPath(snapshot!, a).localeCompare(folderPath(snapshot!, b), 'zh-Hant'))) {
-          const item = document.createElement('button'); item.type = 'button'; item.textContent = folderPath(snapshot, folder); item.title = folderPath(snapshot, folder); item.addEventListener('click', () => openPanel(folder.id)); list.append(item);
-        }
-      }
-      const manage = document.createElement('button'); manage.type = 'button'; manage.textContent = snapshot ? `整理 ${snapshot.chats.length} 個已收錄聊天 →` : '開啟整理面板 →'; manage.addEventListener('click', () => openPanel()); list.append(manage);
-      const settings = document.createElement('button'); settings.type = 'button'; settings.textContent = '獨立管理頁 ↗'; settings.addEventListener('click', () => { void browser.runtime.sendMessage({ channel: 'gemini-folders-open-options' }); }); list.append(settings);
+      sidebarSection?.update(snapshot);
     }
     function mountSidebar() {
       if (!sidebar?.isConnected) sidebar = findSidebar(document);
       const anchor = sidebar ? sidebarAnchor(sidebar) : null;
       if (anchor && sidebar && !sideHost?.isConnected) {
-        sideHost?.remove(); sideHost = document.createElement('div'); sideHost.dataset.geminiFolders = 'sidebar';
+        sidebarSection?.destroy(); sideHost?.remove(); sideHost = document.createElement('div'); sideHost.dataset.geminiFolders = 'sidebar';
         sideHost.style.color = getComputedStyle(sidebar).color;
         const sideShadow = sideHost.attachShadow({ mode: 'open' }); const sideStyle = document.createElement('style'); sideStyle.textContent = css;
-        sidebarUi = document.createElement('div'); sidebarUi.className = 'gf-sidebar'; sideShadow.append(sideStyle, sidebarUi); anchor.before(sideHost); renderSidebar();
+        const sidebarUi = document.createElement('div'); sidebarUi.className = 'gf-sidebar'; sideShadow.append(sideStyle, sidebarUi); anchor.before(sideHost);
+        sidebarSection = mountSidebarSection(sidebarUi, {
+          async onToggle(id, collapsed) {
+            await beforeChange(id);
+            const next = await client.change(id, { type: 'set-sidebar-collapsed', collapsed });
+            await beforeChange(id);
+            if (ctx.isValid) showSnapshot(next);
+          },
+          onOpen: openPanel,
+          onOpenOptions() { void browser.runtime.sendMessage({ channel: 'gemini-folders-open-options' }); },
+        });
+        renderSidebar();
       }
       fallback.hidden = Boolean(sideHost?.isConnected && sidebar && sidebar.getBoundingClientRect().width > 100);
       const dark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark-theme') || document.body.classList.contains('dark');
@@ -125,6 +127,6 @@ export default defineContentScript({
     // Poll only account controls, URL, and the sidebar; never inspect message bodies.
     ctx.setInterval(() => { void synchronize(); }, 1200);
     void synchronize();
-    ctx.onInvalidated(() => { unsubscribe(); manager.destroy(); sideHost?.remove(); host.remove(); });
+    ctx.onInvalidated(() => { unsubscribe(); manager.destroy(); sidebarSection?.destroy(); sideHost?.remove(); host.remove(); });
   },
 });

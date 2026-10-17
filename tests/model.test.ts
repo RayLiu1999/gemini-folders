@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyOperation, backupOf, emptyWorkspace, parseBackup, parseChatUrl, parseStore, validateWorkspace } from '../src/model';
+import { applyOperation, backupOf, emptyWorkspace, parseBackup, parseChatUrl, parseOperation, parseStore, validateWorkspace } from '../src/model';
 import { environment, sampleWorkspace } from './fixtures';
 
 describe('分類規則', () => {
@@ -38,6 +38,13 @@ describe('分類規則', () => {
 });
 
 describe('備份與資料驗證', () => {
+  it('舊資料預設展開側欄並保留分類，拒絕格式錯誤的收合設定', () => {
+    const original = sampleWorkspace(); const legacy: Record<string, unknown> = { ...original }; delete legacy.sidebarCollapsed;
+    const restored = parseStore({ version: 1, workspaces: [legacy] }).workspaces[0]!;
+    expect(restored.sidebarCollapsed).toBe(false); expect(restored.folders).toEqual(original.folders); expect(restored.chats).toEqual(original.chats);
+    expect(() => validateWorkspace({ ...legacy, sidebarCollapsed: 'false' })).toThrow(/側欄收合設定/);
+    expect(() => parseOperation({ type: 'set-sidebar-collapsed', collapsed: null })).toThrow(/側欄收合設定/);
+  });
   it.each(['https://evil.example/app/aaaaaaaaaaaaaaaa', 'javascript:alert(1)', 'https://gemini.google.com/share/aaaaaaaaaaaaaaaa', 'https://evil.example/?url=https://gemini.google.com/app/aaaaaaaaaaaaaaaa'])('拒絕非聊天連結 %s', value => {
     expect(parseChatUrl(value)).toBeNull();
   });
