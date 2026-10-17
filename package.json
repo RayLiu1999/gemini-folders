@@ -1,6 +1,6 @@
 {
   "name": "gemini-folders",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "在 Gemini 側欄整理聊天的本機資料夾工具",
   "private": true,
   "type": "module",
