@@ -1,0 +1,36 @@
+{
+  "name": "gemini-folders",
+  "version": "0.1.0",
+  "description": "在 Gemini 側欄整理聊天的本機資料夾工具",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.17.0 <23"
+  },
+  "scripts": {
+    "dev": "wxt --level info",
+    "build": "wxt build --level info",
+    "zip": "wxt zip --level info",
+    "typecheck": "wxt prepare --level warn && tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "preview": "vite --config tools/preview.config.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "keywords": [],
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.16.0",
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/user-event": "14.6.8",
+    "@types/node": "22.20.5",
+    "eslint": "9.39.5",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
+    "wxt": "0.21.4"
+  }
+}

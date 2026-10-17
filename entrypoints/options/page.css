@@ -1,0 +1,1 @@
+html { color-scheme:light dark; background:#eef1f5; } body { margin:0; padding:40px 20px; } #app { max-width:1180px; margin:auto; box-shadow:0 12px 70px #18243a0c; border-radius:20px; } .gf-shell { min-height:calc(100vh - 80px); } @media(prefers-color-scheme:dark) { html { background:#101318; } } @media(max-width:680px) { body { padding:12px; } }
